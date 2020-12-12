@@ -21,6 +21,7 @@ debug
 .vscode/
 
 #Various temporary created while building/running jx.
+tmp
 /build/
 /release/
 dist/
