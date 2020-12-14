@@ -28,14 +28,17 @@ import (
 type Options struct {
 	options.BaseOptions
 
-	Dir       string
-	OutDir    string
-	Recursive bool
+	Dir          string
+	OutDir       string
+	MainBranches []string
+	Recursive    bool
 
 	Workflows map[string]*actions.Workflow
 }
 
 var (
+	defaultMainBranches = []string{"main", "master"}
+
 	info = termcolor.ColorInfo
 
 	cmdLong = templates.LongDesc(`
@@ -65,6 +68,7 @@ func NewCmdConvert() (*cobra.Command, *Options) {
 	}
 	cmd.Flags().StringVarP(&o.Dir, "dir", "d", ".", "The directory to look for the .lighthouse folder")
 	cmd.Flags().StringVarP(&o.OutDir, "output-dir", "o", "", "The directory to write output files")
+	cmd.Flags().StringArrayVarP(&o.MainBranches, "main-branches", "", defaultMainBranches, "The main branches for releases")
 	cmd.Flags().BoolVarP(&o.Recursive, "recursive", "r", false, "Recursively find all '.lighthouse' folders such as if linting a Pipeline Catalog")
 	return cmd, o
 }
@@ -147,7 +151,8 @@ func (o *Options) processTriggers(repoConfig *triggerconfig.Config, dir string, 
 				return errors.Wrapf(err, "failed to load pipeline at %s", path)
 			}
 			r.PipelineRunSpec = &pr.Spec
-			err = o.processTriggerPipeline(repoConfig, &r.Base, name)
+			events := o.presubmitToEvents(r)
+			err = o.processTriggerPipeline(repoConfig, &r.Base, name, events)
 			if err != nil {
 				return errors.Wrapf(err, "failed to process pipeline at %s", path)
 			}
@@ -162,7 +167,8 @@ func (o *Options) processTriggers(repoConfig *triggerconfig.Config, dir string, 
 				return errors.Wrapf(err, "failed to load pipeline at %s", path)
 			}
 			r.PipelineRunSpec = &pr.Spec
-			err = o.processTriggerPipeline(repoConfig, &r.Base, name)
+			events := o.postsubmitToEvents(r)
+			err = o.processTriggerPipeline(repoConfig, &r.Base, name, events)
 			if err != nil {
 				return errors.Wrapf(err, "failed to process pipeline at %s", path)
 			}
@@ -171,14 +177,35 @@ func (o *Options) processTriggers(repoConfig *triggerconfig.Config, dir string, 
 	return nil
 }
 
-func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *job.Base, name string) error {
+func (o *Options) presubmitToEvents(r *job.Presubmit) actions.Events {
+	answer := actions.Events{
+		PullRequest: &actions.BranchEvent{},
+		Push: &actions.BranchEvent{
+			BranchesIgnore: o.MainBranches,
+		},
+	}
+	return answer
+}
+
+func (o *Options) postsubmitToEvents(r *job.Postsubmit) actions.Events {
+	answer := actions.Events{
+		Push: &actions.BranchEvent{
+			Branches: o.MainBranches,
+		},
+	}
+	return answer
+}
+
+func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *job.Base, name string, events actions.Events) error {
 	prSpec := jobBase.PipelineRunSpec
 	if prSpec == nil || prSpec.PipelineSpec == nil {
 		return nil
 	}
 
 	fileName := name + "-" + jobBase.Name + ".yaml"
-	workflow := &actions.Workflow{}
+	workflow := &actions.Workflow{
+		On: events,
+	}
 	for _, pt := range prSpec.PipelineSpec.Tasks {
 		if pt.TaskSpec == nil || pt.TaskSpec.TaskSpec == nil {
 			continue
@@ -192,18 +219,6 @@ func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *
 		o.Workflows = map[string]*actions.Workflow{}
 	}
 	o.Workflows[fileName] = workflow
-	return nil
-}
-
-func (o *Options) writeWorkflows() error {
-	for f, w := range o.Workflows {
-		path := filepath.Join(o.OutDir, f)
-		err := yamls.SaveFile(w, path)
-		if err != nil {
-			return errors.Wrapf(err, "failed to save file %s", path)
-		}
-		log.Logger().Infof("saved file %s", info(path))
-	}
 	return nil
 }
 
@@ -258,4 +273,16 @@ func loadJobBaseFromSourcePath(ctx context.Context, path string) (*v1beta1.Pipel
 		return nil, errors.Wrapf(err, "failed to unmarshal YAML file %s", path)
 	}
 	return pr, nil
+}
+
+func (o *Options) writeWorkflows() error {
+	for f, w := range o.Workflows {
+		path := filepath.Join(o.OutDir, f)
+		err := yamls.SaveFile(w, path)
+		if err != nil {
+			return errors.Wrapf(err, "failed to save file %s", path)
+		}
+		log.Logger().Infof("saved file %s", info(path))
+	}
+	return nil
 }
