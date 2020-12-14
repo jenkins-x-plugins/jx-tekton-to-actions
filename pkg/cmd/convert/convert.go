@@ -13,6 +13,7 @@ import (
 	"github.com/jenkins-x/jx-helpers/v3/pkg/cobras/templates"
 	"github.com/jenkins-x/jx-helpers/v3/pkg/files"
 	"github.com/jenkins-x/jx-helpers/v3/pkg/options"
+	"github.com/jenkins-x/jx-helpers/v3/pkg/stringhelpers"
 	"github.com/jenkins-x/jx-helpers/v3/pkg/termcolor"
 	"github.com/jenkins-x/jx-helpers/v3/pkg/yamls"
 	"github.com/jenkins-x/jx-logging/v3/pkg/log"
@@ -31,6 +32,7 @@ type Options struct {
 	Dir          string
 	OutDir       string
 	MainBranches []string
+	RemoveSteps  []string
 	Recursive    bool
 
 	Workflows map[string]*actions.Workflow
@@ -38,6 +40,9 @@ type Options struct {
 
 var (
 	defaultMainBranches = []string{"main", "master"}
+	defaultRemoveSteps  = []string{"git-clone", "setup-builder-home", "git-merge"}
+
+	shebang = "#!"
 
 	info = termcolor.ColorInfo
 
@@ -69,6 +74,7 @@ func NewCmdConvert() (*cobra.Command, *Options) {
 	cmd.Flags().StringVarP(&o.Dir, "dir", "d", ".", "The directory to look for the .lighthouse folder")
 	cmd.Flags().StringVarP(&o.OutDir, "output-dir", "o", "", "The directory to write output files")
 	cmd.Flags().StringArrayVarP(&o.MainBranches, "main-branches", "", defaultMainBranches, "The main branches for releases")
+	cmd.Flags().StringArrayVarP(&o.RemoveSteps, "remove-steps", "", defaultRemoveSteps, "The steps to remove")
 	cmd.Flags().BoolVarP(&o.Recursive, "recursive", "r", false, "Recursively find all '.lighthouse' folders such as if linting a Pipeline Catalog")
 	return cmd, o
 }
@@ -212,7 +218,10 @@ func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *
 		}
 		job := o.taskToJob(pt.TaskSpec.TaskSpec)
 		if job != nil {
-			workflow.Jobs = append(workflow.Jobs, job)
+			if workflow.Jobs == nil {
+				workflow.Jobs = map[string]*actions.WorkflowJob{}
+			}
+			workflow.Jobs[jobBase.Name] = job
 		}
 	}
 	if o.Workflows == nil {
@@ -226,6 +235,9 @@ func (o *Options) taskToJob(spec *v1beta1.TaskSpec) *actions.WorkflowJob {
 	job := &actions.WorkflowJob{}
 	for i := range spec.Steps {
 		s := &spec.Steps[i]
+		if stringhelpers.StringArrayIndex(o.RemoveSteps, s.Name) >= 0 {
+			continue
+		}
 		taskStep := o.taskStepToTaskStep(spec, s)
 		if taskStep != nil {
 			job.Steps = append(job.Steps, taskStep)
@@ -240,8 +252,27 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step) *a
 		Uses: "docker://" + s.Image,
 	}
 	if s.Script != "" {
-		// TODO detect script....
 		step.Run = s.Script
+
+		// lets get the first line
+		i := strings.Index(s.Script, "\n")
+		if i > 0 {
+			shebangLine := strings.TrimSpace(s.Script[0:i])
+			if strings.HasPrefix(shebangLine, shebang) {
+				shebangLine = strings.TrimPrefix(shebangLine, shebang)
+				j := strings.Index(shebangLine, "env ")
+				shell := ""
+				if j > 0 {
+					shell = shebangLine[j+4:]
+				}
+				if shell == "" {
+					shell = shebangLine
+				}
+				shell = strings.TrimPrefix(shell, "/bin/")
+				step.Shell = shell
+				step.Run = strings.TrimSpace(s.Script[i+1:])
+			}
+		}
 	} else {
 		step.Run = strings.Join(append(s.Command, s.Args...), " ")
 	}
