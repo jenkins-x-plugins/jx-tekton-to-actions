@@ -236,6 +236,12 @@ func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *
 func (o *Options) taskToJob(spec *v1beta1.TaskSpec) *actions.WorkflowJob {
 	job := &actions.WorkflowJob{
 		RunsOn: o.RunsOn,
+		Steps: []*actions.TaskStep{
+			{
+				Name: "Checkout",
+				Uses: "actions/checkout@v1",
+			},
+		},
 	}
 	for i := range spec.Steps {
 		s := &spec.Steps[i]
@@ -255,6 +261,9 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step) *a
 		Name: s.Name,
 		Uses: "docker://" + s.Image,
 		With: map[string]string{},
+		Env: map[string]string{
+			"GITHUB_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+		},
 	}
 	if s.Script != "" {
 		// lets get the first line
@@ -262,22 +271,19 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step) *a
 		if i > 0 {
 			shebangLine := strings.TrimSpace(s.Script[0:i])
 			if strings.HasPrefix(shebangLine, shebang) {
-				shebangLine = strings.TrimPrefix(shebangLine, shebang)
-				j := strings.Index(shebangLine, "env ")
-				shell := ""
-				if j > 0 {
-					shell = shebangLine[j+4:]
-				}
-				if shell == "" {
-					shell = shebangLine
-				}
+				shell := strings.TrimPrefix(shebangLine, shebang)
 
 				remaining := strings.TrimSpace(s.Script[i+1:])
-				remaining = strings.ReplaceAll(remaining, "\n", "; ")
-				remaining = strings.ReplaceAll(remaining, `"`, `\"`)
-				remaining = strings.ReplaceAll(remaining, `'`, `\'`)
+				lines := strings.Split(remaining, "\n")
+				if len(lines) == 1 && strings.HasPrefix(lines[0], "jx ") {
+					step.With["args"] = lines[0]
+				} else {
+					remaining = strings.ReplaceAll(remaining, "\n", "; ")
+					remaining = strings.ReplaceAll(remaining, `"`, `\"`)
+					remaining = strings.ReplaceAll(remaining, `'`, `\'`)
 
-				step.With["entrypoint"] = shell + " -c '" + remaining + "'"
+					step.With["args"] = shell + " -c '" + remaining + "'"
+				}
 			}
 		}
 	} else {

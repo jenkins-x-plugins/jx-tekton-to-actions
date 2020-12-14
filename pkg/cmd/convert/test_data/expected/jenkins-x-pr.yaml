@@ -2,22 +2,32 @@ jobs:
   pr:
     runs-on: ubuntu-latest
     steps:
-    - name: jx-variables
+    - name: Checkout
+      uses: actions/checkout@v1
+    - env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      name: jx-variables
       uses: docker://gcr.io/jenkinsxio/jx-boot:3.1.28
       with:
-        entrypoint: sh -c 'jx gitops variables'
-    - name: build-make-linux
+        args: jx gitops variables
+    - env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      name: build-make-linux
       uses: docker://gcr.io/jenkinsxio/builder-go:2.1.150-769
       with:
-        entrypoint: /bin/sh -c 'make linux'
-    - name: build-container-build
+        args: /bin/sh -c 'make linux'
+    - env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      name: build-container-build
       uses: docker://gcr.io/kaniko-project/executor:debug-v1.3.0
       with:
-        entrypoint: /busybox/sh -c 'source .jx/variables.sh; cp /tekton/creds-secrets/tekton-container-registry-auth/.dockerconfigjson /kaniko/.docker/config.json; /kaniko/executor $KANIKO_FLAGS --context=/workspace/source --dockerfile=/workspace/source/Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION'
-    - name: promote-jx-preview
+        args: /busybox/sh -c 'source .jx/variables.sh; cp /tekton/creds-secrets/tekton-container-registry-auth/.dockerconfigjson /kaniko/.docker/config.json; /kaniko/executor $KANIKO_FLAGS --context=/workspace/source --dockerfile=/workspace/source/Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION'
+    - env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      name: promote-jx-preview
       uses: docker://gcr.io/jenkinsxio/jx-preview:0.0.135
       with:
-        entrypoint: sh -c 'source /workspace/source/.jx/variables.sh; jx preview create'
+        args: /usr/bin/env sh -c 'source /workspace/source/.jx/variables.sh; jx preview create'
 "on":
   pull_request: {}
   push:

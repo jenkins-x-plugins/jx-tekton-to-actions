@@ -19,6 +19,7 @@ type TaskStep struct {
 	Name             string            `json:"name,omitempty"`
 	Run              string            `json:"run,omitempty"`
 	Shell            string            `json:"shell,omitempty"`
+	Env              map[string]string `json:"env,omitempty"`
 	Uses             string            `json:"uses,omitempty"`
 	With             map[string]string `json:"with,omitempty"`
 	WorkingDirectory string            `json:"working-directory,omitempty"`
