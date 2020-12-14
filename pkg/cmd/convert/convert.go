@@ -31,6 +31,7 @@ type Options struct {
 
 	Dir          string
 	OutDir       string
+	RunsOn       string
 	MainBranches []string
 	RemoveSteps  []string
 	Recursive    bool
@@ -73,6 +74,7 @@ func NewCmdConvert() (*cobra.Command, *Options) {
 	}
 	cmd.Flags().StringVarP(&o.Dir, "dir", "d", ".", "The directory to look for the .lighthouse folder")
 	cmd.Flags().StringVarP(&o.OutDir, "output-dir", "o", "", "The directory to write output files")
+	cmd.Flags().StringVarP(&o.RunsOn, "runs-on", "", "ubuntu-latest", "The machine this runs on")
 	cmd.Flags().StringArrayVarP(&o.MainBranches, "main-branches", "", defaultMainBranches, "The main branches for releases")
 	cmd.Flags().StringArrayVarP(&o.RemoveSteps, "remove-steps", "", defaultRemoveSteps, "The steps to remove")
 	cmd.Flags().BoolVarP(&o.Recursive, "recursive", "r", false, "Recursively find all '.lighthouse' folders such as if linting a Pipeline Catalog")
@@ -232,7 +234,9 @@ func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *
 }
 
 func (o *Options) taskToJob(spec *v1beta1.TaskSpec) *actions.WorkflowJob {
-	job := &actions.WorkflowJob{}
+	job := &actions.WorkflowJob{
+		RunsOn: o.RunsOn,
+	}
 	for i := range spec.Steps {
 		s := &spec.Steps[i]
 		if stringhelpers.StringArrayIndex(o.RemoveSteps, s.Name) >= 0 {
@@ -250,10 +254,9 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step) *a
 	step := &actions.TaskStep{
 		Name: s.Name,
 		Uses: "docker://" + s.Image,
+		With: map[string]string{},
 	}
 	if s.Script != "" {
-		step.Run = s.Script
-
 		// lets get the first line
 		i := strings.Index(s.Script, "\n")
 		if i > 0 {
@@ -268,13 +271,17 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step) *a
 				if shell == "" {
 					shell = shebangLine
 				}
-				shell = strings.TrimPrefix(shell, "/bin/")
-				step.Shell = shell
-				step.Run = strings.TrimSpace(s.Script[i+1:])
+
+				remaining := strings.TrimSpace(s.Script[i+1:])
+				remaining = strings.ReplaceAll(remaining, "\n", "; ")
+				remaining = strings.ReplaceAll(remaining, `"`, `\"`)
+				remaining = strings.ReplaceAll(remaining, `'`, `\'`)
+
+				step.With["entrypoint"] = shell + " -c '" + remaining + "'"
 			}
 		}
 	} else {
-		step.Run = strings.Join(append(s.Command, s.Args...), " ")
+		step.With["entrypoint"] = strings.Join(append(s.Command, s.Args...), " ")
 	}
 	return step
 }

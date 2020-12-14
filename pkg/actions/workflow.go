@@ -10,16 +10,18 @@ type Workflow struct {
 }
 
 type WorkflowJob struct {
-	Steps []*TaskStep `json:"steps,omitempty"`
+	RunsOn string      `json:"runs-on,omitempty"`
+	Steps  []*TaskStep `json:"steps,omitempty"`
 }
 
 // TaskStep represents a single task step from a sequence of tasks of a job.
 type TaskStep struct {
-	Name             string `json:"name,omitempty"`
-	Run              string `json:"run,omitempty"`
-	Shell            string `json:"shell,omitempty"`
-	Uses             string `json:"uses,omitempty"`
-	WorkingDirectory string `json:"working-directory,omitempty"`
+	Name             string            `json:"name,omitempty"`
+	Run              string            `json:"run,omitempty"`
+	Shell            string            `json:"shell,omitempty"`
+	Uses             string            `json:"uses,omitempty"`
+	With             map[string]string `json:"with,omitempty"`
+	WorkingDirectory string            `json:"working-directory,omitempty"`
 }
 
 type Defaults struct {
