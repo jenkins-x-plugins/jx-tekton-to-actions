@@ -15,19 +15,19 @@ jobs:
       name: build-make-linux
       uses: docker://gcr.io/jenkinsxio/builder-go:2.1.150-769
       with:
-        args: /bin/sh -c 'make linux'
+        args: /bin/sh -c "make linux"
     - env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       name: build-container-build
       uses: docker://gcr.io/kaniko-project/executor:debug-v1.3.0
       with:
-        args: /busybox/sh -c 'source .jx/variables.sh; cp /tekton/creds-secrets/tekton-container-registry-auth/.dockerconfigjson /kaniko/.docker/config.json; /kaniko/executor $KANIKO_FLAGS --context=/workspace/source --dockerfile=/workspace/source/Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION'
+        args: /busybox/sh -c "source .jx/variables.sh; cp /tekton/creds-secrets/tekton-container-registry-auth/.dockerconfigjson /kaniko/.docker/config.json; /kaniko/executor $KANIKO_FLAGS --context=/workspace/source --dockerfile=/workspace/source/Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION"
     - env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       name: promote-jx-preview
       uses: docker://gcr.io/jenkinsxio/jx-preview:0.0.135
       with:
-        args: /usr/bin/env sh -c 'source /workspace/source/.jx/variables.sh; jx preview create'
+        args: /usr/bin/env sh -c "source /workspace/source/.jx/variables.sh; jx preview create"
 "on":
   pull_request: {}
   push:

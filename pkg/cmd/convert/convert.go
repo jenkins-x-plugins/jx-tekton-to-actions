@@ -299,7 +299,7 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step) *a
 					remaining = strings.ReplaceAll(remaining, `"`, `\"`)
 					remaining = strings.ReplaceAll(remaining, `'`, `\'`)
 
-					step.With["args"] = shell + " -c '" + remaining + "'"
+					step.With["args"] = shell + " -c \"" + remaining + "\""
 				}
 			}
 		}
