@@ -9,19 +9,22 @@ jobs:
       name: jx-variables
       uses: docker://gcr.io/jenkinsxio/jx-boot:3.1.28
       with:
-        args: jx gitops variables
+        args: jx gitops variables --commit=false
     - env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       name: build-make-linux
       uses: docker://gcr.io/jenkinsxio/builder-go:2.1.150-769
       with:
         args: /bin/sh -c "make linux"
-    - env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      name: build-container-build
-      uses: docker://gcr.io/kaniko-project/executor:debug-v1.3.0
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v1
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+    - name: Build and push
+      uses: docker/build-push-action@v2
       with:
-        args: /busybox/sh -c "source .jx/variables.sh; cp /tekton/creds-secrets/tekton-container-registry-auth/.dockerconfigjson /kaniko/.docker/config.json; /kaniko/executor $KANIKO_FLAGS --context=/workspace/source --dockerfile=/workspace/source/Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION"
+        context: .
+        file: ./Dockerfile
     - env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       name: promote-jx-preview

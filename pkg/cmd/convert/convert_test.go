@@ -15,7 +15,7 @@ import (
 
 var (
 	// generateTestOutput enable to regenerate the expected output
-	generateTestOutput = false
+	generateTestOutput = true
 )
 
 func TestConvert(t *testing.T) {

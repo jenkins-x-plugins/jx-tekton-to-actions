@@ -35,6 +35,13 @@ const (
 	TriggerPostsubmit TriggerKind = "postsubmit"
 )
 
+type StepOverrideFunction func(*StepOverrideArgs) []*actions.TaskStep
+
+type StepOverrideArgs struct {
+	Name string
+	Kind TriggerKind
+}
+
 // Options contains the command line options
 type Options struct {
 	options.BaseOptions
@@ -46,7 +53,9 @@ type Options struct {
 	RemoveSteps  []string
 	Recursive    bool
 
-	Workflows map[string]*actions.Workflow
+	Workflows        map[string]*actions.Workflow
+	Overrides        map[string]StepOverrideFunction
+	LoginToDockerHub bool
 }
 
 var (
@@ -65,6 +74,14 @@ var (
 		# Converts the tekton pipelines to actions
 		jx tekton-to-actions convert
 	`)
+
+	replacements = map[string]string{
+		// lets workaround git commit not yet working inside GHA until we lazy add git config
+		"jx gitops variables": "jx gitops variables --commit=false",
+
+		// disable the kaniko copy for now
+		"source .jx/variables.sh; cp /tekton/creds-secrets/tekton-container-registry-auth/.dockerconfigjson /kaniko/.docker/config.json; /kaniko/executor $KANIKO_FLAGS --context=/workspace/source --dockerfile=/workspace/source/Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION": "source .jx/variables.sh; /kaniko/executor $KANIKO_FLAGS --context=. --dockerfile=Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION",
+	}
 )
 
 // NewCmdConvert creates the command
@@ -99,6 +116,10 @@ func (o *Options) Run() error {
 	err := os.MkdirAll(o.OutDir, files.DefaultDirWritePermissions)
 	if err != nil {
 		return errors.Wrapf(err, "failed to create output dir %s", o.OutDir)
+	}
+
+	if o.Overrides == nil {
+		o.Overrides = o.defaultOverrides()
 	}
 
 	if o.Recursive {
@@ -265,15 +286,21 @@ func (o *Options) taskToJob(spec *v1beta1.TaskSpec, kind TriggerKind) *actions.W
 		if stringhelpers.StringArrayIndex(o.RemoveSteps, s.Name) >= 0 {
 			continue
 		}
-		taskStep := o.taskStepToTaskStep(spec, s)
-		if taskStep != nil {
-			job.Steps = append(job.Steps, taskStep)
-		}
+		taskSteps := o.taskStepToTaskStep(spec, s, kind)
+		job.Steps = append(job.Steps, taskSteps...)
 	}
 	return job
 }
 
-func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step) *actions.TaskStep {
+func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step, kind TriggerKind) []*actions.TaskStep {
+	override := o.Overrides[s.Name]
+	if override != nil {
+		args := &StepOverrideArgs{
+			Name: s.Name,
+			Kind: kind,
+		}
+		return override(args)
+	}
 	step := &actions.TaskStep{
 		Name: s.Name,
 		Uses: "docker://" + s.Image,
@@ -293,20 +320,35 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step) *a
 				remaining := strings.TrimSpace(s.Script[i+1:])
 				lines := strings.Split(remaining, "\n")
 				if len(lines) == 1 && strings.HasPrefix(lines[0], "jx ") {
-					step.With["args"] = lines[0]
+					line := lines[0]
+					replacement := replacements[line]
+					if replacement != "" {
+						line = replacement
+					}
+					step.With["args"] = line
 				} else {
 					remaining = strings.ReplaceAll(remaining, "\n", "; ")
 					remaining = strings.ReplaceAll(remaining, `"`, `\"`)
 					remaining = strings.ReplaceAll(remaining, `'`, `\'`)
 
-					step.With["args"] = shell + " -c \"" + remaining + "\""
+					replacement := replacements[remaining]
+					if replacement != "" {
+						remaining = replacement
+					}
+
+					if shell == "/busybox/sh" {
+						step.With["entrypoint"] = shell
+						step.With["args"] = "-c \"" + remaining + "\""
+					} else {
+						step.With["args"] = shell + " -c \"" + remaining + "\""
+					}
 				}
 			}
 		}
 	} else {
 		step.With["entrypoint"] = strings.Join(append(s.Command, s.Args...), " ")
 	}
-	return step
+	return []*actions.TaskStep{step}
 }
 
 func loadJobBaseFromSourcePath(ctx context.Context, path string) (*v1beta1.PipelineRun, error) {
@@ -346,4 +388,51 @@ func (o *Options) writeWorkflows() error {
 		log.Logger().Infof("saved file %s", info(path))
 	}
 	return nil
+}
+
+func (o *Options) defaultOverrides() map[string]StepOverrideFunction {
+	return map[string]StepOverrideFunction{
+		"build-container-build": o.createDockerBuildStep,
+	}
+}
+
+func (o *Options) createDockerBuildStep(args *StepOverrideArgs) []*actions.TaskStep {
+	answer := []*actions.TaskStep{
+		{
+			Name: "Set up QEMU",
+			Uses: "docker/setup-qemu-action@v1",
+		},
+		{
+			Name: "Set up Docker Buildx",
+			Uses: "docker/setup-buildx-action@v1",
+		},
+	}
+	if o.LoginToDockerHub {
+		answer = append(answer, &actions.TaskStep{
+			Name: "Login to DockerHub",
+			Uses: "docker/login-action@v1",
+			With: map[string]string{
+				"username": `${{ secrets.DOCKERHUB_USERNAME }}`,
+				"password": `${{ secrets.${{ secrets.DOCKERHUB_USERNAME }} }}`,
+			},
+		})
+	}
+	pushWith := map[string]string{
+		"context": ".",
+		"file":    "./Dockerfile",
+	}
+
+	/* if release....
+		      platforms: linux/amd64,linux/arm64,linux/386
+	          push: true
+	          tags: user/app:latest
+	*/
+
+	answer = append(answer, &actions.TaskStep{
+		Name: "Build and push",
+		Uses: "docker/build-push-action@v2",
+		With: pushWith,
+	})
+	return answer
+
 }
