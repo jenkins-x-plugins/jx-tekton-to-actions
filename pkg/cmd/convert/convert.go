@@ -25,6 +25,16 @@ import (
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 )
 
+type TriggerKind string
+
+const (
+	// TriggerPresubmit for presubmits
+	TriggerPresubmit TriggerKind = "presubmit"
+
+	// TriggerPostsubmit for postsubmits
+	TriggerPostsubmit TriggerKind = "postsubmit"
+)
+
 // Options contains the command line options
 type Options struct {
 	options.BaseOptions
@@ -160,7 +170,7 @@ func (o *Options) processTriggers(repoConfig *triggerconfig.Config, dir string, 
 			}
 			r.PipelineRunSpec = &pr.Spec
 			events := o.presubmitToEvents(r)
-			err = o.processTriggerPipeline(repoConfig, &r.Base, name, events)
+			err = o.processTriggerPipeline(repoConfig, &r.Base, name, events, TriggerPresubmit)
 			if err != nil {
 				return errors.Wrapf(err, "failed to process pipeline at %s", path)
 			}
@@ -176,7 +186,7 @@ func (o *Options) processTriggers(repoConfig *triggerconfig.Config, dir string, 
 			}
 			r.PipelineRunSpec = &pr.Spec
 			events := o.postsubmitToEvents(r)
-			err = o.processTriggerPipeline(repoConfig, &r.Base, name, events)
+			err = o.processTriggerPipeline(repoConfig, &r.Base, name, events, TriggerPostsubmit)
 			if err != nil {
 				return errors.Wrapf(err, "failed to process pipeline at %s", path)
 			}
@@ -204,7 +214,7 @@ func (o *Options) postsubmitToEvents(r *job.Postsubmit) actions.Events {
 	return answer
 }
 
-func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *job.Base, name string, events actions.Events) error {
+func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *job.Base, name string, events actions.Events, kind TriggerKind) error {
 	prSpec := jobBase.PipelineRunSpec
 	if prSpec == nil || prSpec.PipelineSpec == nil {
 		return nil
@@ -218,7 +228,7 @@ func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *
 		if pt.TaskSpec == nil || pt.TaskSpec.TaskSpec == nil {
 			continue
 		}
-		job := o.taskToJob(pt.TaskSpec.TaskSpec)
+		job := o.taskToJob(pt.TaskSpec.TaskSpec, kind)
 		if job != nil {
 			if workflow.Jobs == nil {
 				workflow.Jobs = map[string]*actions.WorkflowJob{}
@@ -233,14 +243,21 @@ func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *
 	return nil
 }
 
-func (o *Options) taskToJob(spec *v1beta1.TaskSpec) *actions.WorkflowJob {
+func (o *Options) taskToJob(spec *v1beta1.TaskSpec, kind TriggerKind) *actions.WorkflowJob {
+	checkout := &actions.TaskStep{
+		Name: "Checkout",
+		Uses: "actions/checkout@v2",
+	}
+	if kind == TriggerPostsubmit {
+		// lets do a full clone for tags
+		checkout.With = map[string]string{
+			"fetch-depth": "0",
+		}
+	}
 	job := &actions.WorkflowJob{
 		RunsOn: o.RunsOn,
 		Steps: []*actions.TaskStep{
-			{
-				Name: "Checkout",
-				Uses: "actions/checkout@v1",
-			},
+			checkout,
 		},
 	}
 	for i := range spec.Steps {
