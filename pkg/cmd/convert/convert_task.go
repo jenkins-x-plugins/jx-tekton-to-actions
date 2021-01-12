@@ -14,6 +14,15 @@ import (
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 )
 
+var (
+	stepEnvironmentVariables = map[string]map[string]string{
+		"promote-helm-release": {
+			"JX_REPOSITORY_USERNAME": "${{ github.repository_owner }}",
+			"JX_REPOSITORY_PASSWORD": "${{ secrets.GITHUB_TOKEN }}",
+		},
+	}
+)
+
 func (o *Options) taskToJob(spec *v1beta1.TaskSpec, kind TriggerKind, dirName string) (*actions.WorkflowJob, error) {
 	checkout := &actions.TaskStep{
 		Name: "Checkout",
@@ -63,15 +72,22 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step, ki
 			"GITHUB_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
 		},
 	}
-	if s.Script != "" {
+	for k, v := range stepEnvironmentVariables[s.Name] {
+		step.Env[k] = v
+	}
+	script := s.Script
+	if script != "" {
+		// lets remove all absolute paths to .jx
+		script = strings.ReplaceAll(script, "/workspace/source/", "")
+
 		// lets get the first line
-		i := strings.Index(s.Script, "\n")
+		i := strings.Index(script, "\n")
 		if i > 0 {
-			shebangLine := strings.TrimSpace(s.Script[0:i])
+			shebangLine := strings.TrimSpace(script[0:i])
 			if strings.HasPrefix(shebangLine, shebang) {
 				shell := strings.TrimPrefix(shebangLine, shebang)
 
-				remaining := strings.TrimSpace(s.Script[i+1:])
+				remaining := strings.TrimSpace(script[i+1:])
 				lines := strings.Split(remaining, "\n")
 				if len(lines) == 1 && strings.HasPrefix(lines[0], "jx ") {
 					line := lines[0]
@@ -90,10 +106,7 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step, ki
 					if err != nil {
 						return nil, errors.Wrapf(err, "failed to create dir %s", dir)
 					}
-					text := s.Script
-					// lets remove all absolute paths to .jx
-					text = strings.ReplaceAll(text, "/workspace/source/.jx", ".jx")
-					err = ioutil.WriteFile(path, []byte(text), 0777)
+					err = ioutil.WriteFile(path, []byte(script), 0777)
 					if err != nil {
 						return nil, errors.Wrapf(err, "failed to save file %s", path)
 					}
