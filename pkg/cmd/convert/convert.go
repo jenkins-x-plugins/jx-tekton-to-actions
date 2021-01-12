@@ -76,11 +76,13 @@ var (
 	`)
 
 	replacements = map[string]string{
-		// lets workaround git commit not yet working inside GHA until we lazy add git config
-		"jx gitops variables": "jx gitops variables --commit=false",
+		/*
+			// lets workaround git commit not yet working inside GHA until we lazy add git config
+			"jx gitops variables": "jx gitops variables --commit=false",
 
-		// disable the kaniko copy for now
-		"source .jx/variables.sh; cp /tekton/creds-secrets/tekton-container-registry-auth/.dockerconfigjson /kaniko/.docker/config.json; /kaniko/executor $KANIKO_FLAGS --context=/workspace/source --dockerfile=/workspace/source/Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION": "source .jx/variables.sh; /kaniko/executor $KANIKO_FLAGS --context=. --dockerfile=Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION",
+			// disable the kaniko copy for now
+			"source .jx/variables.sh; cp /tekton/creds-secrets/tekton-container-registry-auth/.dockerconfigjson /kaniko/.docker/config.json; /kaniko/executor $KANIKO_FLAGS --context=/workspace/source --dockerfile=/workspace/source/Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION": "source .jx/variables.sh; /kaniko/executor $KANIKO_FLAGS --context=. --dockerfile=Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION",
+		*/
 	}
 )
 
@@ -191,7 +193,7 @@ func (o *Options) processTriggers(repoConfig *triggerconfig.Config, dir string, 
 			}
 			r.PipelineRunSpec = &pr.Spec
 			events := o.presubmitToEvents(r)
-			err = o.processTriggerPipeline(repoConfig, &r.Base, name, events, TriggerPresubmit)
+			err = o.processTriggerPipeline(repoConfig, &r.Base, dir, name, events, TriggerPresubmit)
 			if err != nil {
 				return errors.Wrapf(err, "failed to process pipeline at %s", path)
 			}
@@ -207,7 +209,7 @@ func (o *Options) processTriggers(repoConfig *triggerconfig.Config, dir string, 
 			}
 			r.PipelineRunSpec = &pr.Spec
 			events := o.postsubmitToEvents(r)
-			err = o.processTriggerPipeline(repoConfig, &r.Base, name, events, TriggerPostsubmit)
+			err = o.processTriggerPipeline(repoConfig, &r.Base, dir, name, events, TriggerPostsubmit)
 			if err != nil {
 				return errors.Wrapf(err, "failed to process pipeline at %s", path)
 			}
@@ -235,7 +237,7 @@ func (o *Options) postsubmitToEvents(r *job.Postsubmit) actions.Events {
 	return answer
 }
 
-func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *job.Base, name string, events actions.Events, kind TriggerKind) error {
+func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *job.Base, dir string, name string, events actions.Events, kind TriggerKind) error {
 	prSpec := jobBase.PipelineRunSpec
 	if prSpec == nil || prSpec.PipelineSpec == nil {
 		return nil
@@ -249,7 +251,10 @@ func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *
 		if pt.TaskSpec == nil || pt.TaskSpec.TaskSpec == nil {
 			continue
 		}
-		job := o.taskToJob(pt.TaskSpec.TaskSpec, kind)
+		job, err := o.taskToJob(pt.TaskSpec.TaskSpec, kind, name)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create job for %s", pt.Name)
+		}
 		if job != nil {
 			if workflow.Jobs == nil {
 				workflow.Jobs = map[string]*actions.WorkflowJob{}
@@ -264,7 +269,7 @@ func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *
 	return nil
 }
 
-func (o *Options) taskToJob(spec *v1beta1.TaskSpec, kind TriggerKind) *actions.WorkflowJob {
+func (o *Options) taskToJob(spec *v1beta1.TaskSpec, kind TriggerKind, dirName string) (*actions.WorkflowJob, error) {
 	checkout := &actions.TaskStep{
 		Name: "Checkout",
 		Uses: "actions/checkout@v2",
@@ -286,20 +291,24 @@ func (o *Options) taskToJob(spec *v1beta1.TaskSpec, kind TriggerKind) *actions.W
 		if stringhelpers.StringArrayIndex(o.RemoveSteps, s.Name) >= 0 {
 			continue
 		}
-		taskSteps := o.taskStepToTaskStep(spec, s, kind)
+		taskSteps, err := o.taskStepToTaskStep(spec, s, kind, dirName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create step for %s", s.Name)
+		}
+
 		job.Steps = append(job.Steps, taskSteps...)
 	}
-	return job
+	return job, nil
 }
 
-func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step, kind TriggerKind) []*actions.TaskStep {
+func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step, kind TriggerKind, dirName string) ([]*actions.TaskStep, error) {
 	override := o.Overrides[s.Name]
 	if override != nil {
 		args := &StepOverrideArgs{
 			Name: s.Name,
 			Kind: kind,
 		}
-		return override(args)
+		return override(args), nil
 	}
 	step := &actions.TaskStep{
 		Name: s.Name,
@@ -326,6 +335,25 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step, ki
 						line = replacement
 					}
 					step.With["args"] = line
+				} else if len(lines) > 2 {
+
+					// lets create a script and use that
+					fileName := s.Name + ".sh"
+					dir := filepath.Join(o.OutDir, dirName)
+					path := filepath.Join(dir, fileName)
+					err := os.MkdirAll(dir, files.DefaultDirWritePermissions)
+					if err != nil {
+						return nil, errors.Wrapf(err, "failed to create dir %s", dir)
+					}
+					text := s.Script
+					// lets remove all absolute paths to .jx
+					text = strings.ReplaceAll(text, "/workspace/source/.jx", ".jx")
+					err = ioutil.WriteFile(path, []byte(text), 0777)
+					if err != nil {
+						return nil, errors.Wrapf(err, "failed to save file %s", path)
+					}
+					step.With["entrypoint"] = path
+					log.Logger().Infof("created file %s", info(path))
 				} else {
 					remaining = strings.ReplaceAll(remaining, "\n", "; ")
 					remaining = strings.ReplaceAll(remaining, `"`, `\"`)
@@ -348,7 +376,7 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step, ki
 	} else {
 		step.With["entrypoint"] = strings.Join(append(s.Command, s.Args...), " ")
 	}
-	return []*actions.TaskStep{step}
+	return []*actions.TaskStep{step}, nil
 }
 
 func loadJobBaseFromSourcePath(ctx context.Context, path string) (*v1beta1.PipelineRun, error) {
