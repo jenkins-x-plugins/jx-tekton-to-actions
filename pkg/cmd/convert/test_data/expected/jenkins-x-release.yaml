@@ -2,57 +2,57 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        fetch-depth: "0"
-    - env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      name: next-version
-      uses: docker://gcr.io/jenkinsxio/jx-release-version:1.0.42
-      with:
-        args: /usr/bin/env bash -c "VERSION=$(jx-release-version); echo $VERSION > VERSION"
-    - env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      name: jx-variables
-      uses: docker://gcr.io/jenkinsxio/jx-boot:3.1.28
-      with:
-        args: jx gitops variables
-    - env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      name: build-make-build
-      uses: docker://gcr.io/jenkinsxio/builder-go:2.1.150-769
-      with:
-        args: /bin/sh -c "make build"
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v1
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v1
-    - name: Build and push
-      uses: docker/build-push-action@v2
-      with:
-        context: .
-        file: ./Dockerfile
-    - env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      name: promote-changelog
-      uses: docker://gcr.io/jenkinsxio/jx-changelog:0.0.13
-      with:
-        entrypoint: /var/folders/3v/894jjhy52xdbc1hml4dc6s1m0000gn/T/945071222/jenkins-x/promote-changelog.sh
-    - env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      name: promote-helm-release
-      uses: docker://gcr.io/jenkinsxio/jx-boot:3.1.28
-      with:
-        args: jx gitops helm release
-    - env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      name: promote-jx-promote
-      uses: docker://gcr.io/jenkinsxio/jx-promote:0.0.156
-      with:
-        args: /usr/bin/env sh -c "source /workspace/source/.jx/variables.sh; jx promote -b --all-auto --timeout 1h --no-poll"
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: "0"
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: next-version
+        uses: docker://gcr.io/jenkinsxio/jx-release-version:1.0.42
+        with:
+          args: /usr/bin/env bash -c "VERSION=$(jx-release-version); echo $VERSION > VERSION"
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: jx-variables
+        uses: docker://gcr.io/jenkinsxio/jx-boot:3.1.28
+        with:
+          args: jx gitops variables
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: build-make-build
+        uses: docker://gcr.io/jenkinsxio/builder-go:2.1.150-769
+        with:
+          args: /bin/sh -c "make build"
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v1
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: ./Dockerfile
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: promote-changelog
+        uses: docker://gcr.io/jenkinsxio/jx-changelog:0.0.13
+        with:
+          entrypoint: /var/folders/3v/894jjhy52xdbc1hml4dc6s1m0000gn/T/945071222/jenkins-x/promote-changelog.sh
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: promote-helm-release
+        uses: docker://gcr.io/jenkinsxio/jx-boot:3.1.28
+        with:
+          args: jx gitops helm release
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: promote-jx-promote
+        uses: docker://gcr.io/jenkinsxio/jx-promote:0.0.156
+        with:
+          args: /usr/bin/env sh -c "source /workspace/source/.jx/variables.sh; jx promote -b --all-auto --timeout 1h --no-poll"
 "on":
   push:
     branches:
-    - main
-    - master
+      - main
+      - master
