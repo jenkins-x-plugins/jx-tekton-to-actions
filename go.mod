@@ -1,31 +1,26 @@
 module github.com/jenkins-x-plugins/jx-tekton-to-actions
 
 require (
-	github.com/cenkalti/backoff v2.2.1+incompatible
+	cloud.google.com/go v0.70.0 // indirect
+	github.com/aws/aws-sdk-go v1.35.18 // indirect
 	github.com/cpuguy83/go-md2man v1.0.10
-	github.com/fatih/color v1.9.0
-	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
-	github.com/jenkins-x/go-scm v1.5.192
-	github.com/jenkins-x/golang-jenkins v0.0.0-20180919102630-65b83ad42314
-	github.com/jenkins-x/jx-api/v4 v4.0.11
-	github.com/jenkins-x/jx-gitops v0.0.445
-	github.com/jenkins-x/jx-helpers/v3 v3.0.29
-	github.com/jenkins-x/jx-kube-client/v3 v3.0.1
-	github.com/jenkins-x/jx-logging/v3 v3.0.2
-	github.com/jenkins-x/lighthouse v0.0.878
+	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32 // indirect
+	github.com/imdario/mergo v0.3.11 // indirect
+	github.com/jenkins-x/go-scm v1.5.211 // indirect
+	github.com/jenkins-x/jx-api/v4 v4.0.23 // indirect
+	github.com/jenkins-x/jx-gitops v0.0.528 // indirect
+	github.com/jenkins-x/jx-helpers/v3 v3.0.63
+	github.com/jenkins-x/jx-logging/v3 v3.0.3
+	github.com/jenkins-x/lighthouse v0.0.908
+	github.com/kr/pretty v0.2.1 // indirect
 	github.com/pkg/errors v0.9.1
-	github.com/sethvargo/go-githubactions v0.3.0
-	github.com/sirupsen/logrus v1.7.0
 	github.com/spf13/cobra v1.1.1
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.6.1
 	github.com/tektoncd/pipeline v0.16.3
-	gocloud.dev v0.19.0
-	k8s.io/api v0.19.2
-	k8s.io/apimachinery v0.19.3
-	k8s.io/client-go v11.0.1-0.20190805182717-6502b5e7b1b5+incompatible
-	knative.dev/pkg v0.0.0-20201002052829-735a38c03260
-	sigs.k8s.io/yaml v1.2.0
+	go.uber.org/multierr v1.6.0 // indirect
+	go.uber.org/zap v1.16.0 // indirect
+	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9 // indirect
 )
 
 replace (
