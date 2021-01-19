@@ -14,12 +14,19 @@ import (
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
 )
 
+const (
+	stripUseBinEnv              = true
+	replaceWorkspaceSourcePaths = false
+)
+
 var (
 	stepEnvironmentVariables = map[string]map[string]string{
-		"promote-helm-release": {
-			"JX_REPOSITORY_USERNAME": "${{ github.repository_owner }}",
-			"JX_REPOSITORY_PASSWORD": "${{ secrets.GITHUB_TOKEN }}",
-		},
+		/*
+			"promote-helm-release": {
+				"JX_REPOSITORY_USERNAME": "${{ github.repository_owner }}",
+				"JX_REPOSITORY_PASSWORD": "${{ secrets.GITHUB_TOKEN }}",
+			},
+		*/
 	}
 )
 
@@ -77,8 +84,10 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step, ki
 	}
 	script := s.Script
 	if script != "" {
-		// lets remove all absolute paths to .jx
-		script = strings.ReplaceAll(script, "/workspace/source/", "")
+		if replaceWorkspaceSourcePaths {
+			// lets remove all absolute paths to .jx
+			script = strings.ReplaceAll(script, "/workspace/source/", "")
+		}
 
 		// lets get the first line
 		i := strings.Index(script, "\n")
@@ -90,12 +99,13 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step, ki
 				remaining := strings.TrimSpace(script[i+1:])
 				lines := strings.Split(remaining, "\n")
 				if len(lines) == 1 && strings.HasPrefix(lines[0], "jx ") {
-					line := lines[0]
+					line := strings.TrimPrefix(lines[0], "jx ")
 					replacement := replacements[line]
 					if replacement != "" {
 						line = replacement
 					}
 					step.With["args"] = line
+					step.With["entrypoint"] = "jx"
 				} else if len(lines) > 2 {
 
 					// lets create a script and use that
@@ -126,6 +136,13 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step, ki
 					if strings.HasPrefix(shell, "/usr/bin/env ") {
 						args = strings.TrimPrefix(shell, "/usr/bin/env ") + " " + args
 						shell = "/usr/bin/env"
+						if stripUseBinEnv {
+							s := strings.SplitN(args, " ", 2)
+							if len(s) == 2 {
+								shell = s[0]
+								args = s[1]
+							}
+						}
 					}
 					step.With["entrypoint"] = shell
 					step.With["args"] = args

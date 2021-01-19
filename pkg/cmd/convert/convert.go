@@ -16,9 +16,9 @@ import (
 	"github.com/jenkins-x/jx-helpers/v3/pkg/termcolor"
 	"github.com/jenkins-x/jx-helpers/v3/pkg/yamls"
 	"github.com/jenkins-x/jx-logging/v3/pkg/log"
-	"github.com/jenkins-x/lighthouse/pkg/config/job"
-	"github.com/jenkins-x/lighthouse/pkg/triggerconfig"
-	"github.com/jenkins-x/lighthouse/pkg/triggerconfig/inrepo"
+	"github.com/jenkins-x/lighthouse-client/pkg/config/job"
+	"github.com/jenkins-x/lighthouse-client/pkg/triggerconfig"
+	"github.com/jenkins-x/lighthouse-client/pkg/triggerconfig/inrepo"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/tektoncd/pipeline/pkg/apis/pipeline/v1beta1"
@@ -74,15 +74,7 @@ var (
 		jx tekton-to-actions convert
 	`)
 
-	replacements = map[string]string{
-		/*
-			// lets workaround git commit not yet working inside GHA until we lazy add git config
-			"jx gitops variables": "jx gitops variables --commit=false",
-
-			// disable the kaniko copy for now
-			"source .jx/variables.sh; cp /tekton/creds-secrets/tekton-container-registry-auth/.dockerconfigjson /kaniko/.docker/config.json; /kaniko/executor $KANIKO_FLAGS --context=/workspace/source --dockerfile=/workspace/source/Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION": "source .jx/variables.sh; /kaniko/executor $KANIKO_FLAGS --context=. --dockerfile=Dockerfile --destination=$DOCKER_REGISTRY/$DOCKER_REGISTRY_ORG/$APP_NAME:$VERSION",
-		*/
-	}
+	replacements = map[string]string{}
 )
 
 // NewCmdConvert creates the command
@@ -247,10 +239,10 @@ func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *
 		On: events,
 	}
 	for _, pt := range prSpec.PipelineSpec.Tasks {
-		if pt.TaskSpec == nil || pt.TaskSpec.TaskSpec == nil {
+		if pt.TaskSpec == nil {
 			continue
 		}
-		job, err := o.taskToJob(pt.TaskSpec.TaskSpec, kind, name)
+		job, err := o.taskToJob(&pt.TaskSpec.TaskSpec, kind, name)
 		if err != nil {
 			return errors.Wrapf(err, "failed to create job for %s", pt.Name)
 		}
