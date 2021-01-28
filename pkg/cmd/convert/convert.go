@@ -1,8 +1,9 @@
 package convert
 
 import (
-	"context"
-	"fmt"
+	"github.com/jenkins-x/jx-helpers/v3/pkg/scmhelpers"
+	"github.com/jenkins-x/lighthouse-client/pkg/filebrowser"
+	"github.com/jenkins-x/lighthouse-client/pkg/scmprovider"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -44,13 +45,15 @@ type StepOverrideArgs struct {
 // Options contains the command line options
 type Options struct {
 	options.BaseOptions
+	ScmOptions scmhelpers.Options
 
-	Dir          string
 	OutDir       string
+	Path         string
 	RunsOn       string
 	MainBranches []string
 	RemoveSteps  []string
 	Recursive    bool
+	Resolver     *inrepo.UsesResolver
 
 	Workflows        map[string]*actions.Workflow
 	Overrides        map[string]StepOverrideFunction
@@ -92,8 +95,10 @@ func NewCmdConvert() (*cobra.Command, *Options) {
 			helper.CheckErr(err)
 		},
 	}
-	cmd.Flags().StringVarP(&o.Dir, "dir", "d", ".", "The directory to look for the .lighthouse folder")
+	o.ScmOptions.DiscoverFromGit = true
+	cmd.Flags().StringVarP(&o.ScmOptions.Dir, "dir", "d", ".", "The directory to look for the .lighthouse folder")
 	cmd.Flags().StringVarP(&o.OutDir, "output-dir", "o", "", "The directory to write output files")
+	cmd.Flags().StringVarP(&o.Path, "path", "p", "", "The relative path to dir to look for lighthouse files")
 	cmd.Flags().StringVarP(&o.RunsOn, "runs-on", "", "ubuntu-latest", "The machine this runs on")
 	cmd.Flags().StringArrayVarP(&o.MainBranches, "main-branches", "", defaultMainBranches, "The main branches for releases")
 	cmd.Flags().StringArrayVarP(&o.RemoveSteps, "remove-steps", "", defaultRemoveSteps, "The steps to remove")
@@ -103,8 +108,9 @@ func NewCmdConvert() (*cobra.Command, *Options) {
 
 // Run implements this command
 func (o *Options) Run() error {
+	dir := o.ScmOptions.Dir
 	if o.OutDir == "" {
-		o.OutDir = filepath.Join(o.Dir, ".github", "workflows")
+		o.OutDir = filepath.Join(dir, ".github", "workflows")
 	}
 	err := os.MkdirAll(o.OutDir, files.DefaultDirWritePermissions)
 	if err != nil {
@@ -115,8 +121,17 @@ func (o *Options) Run() error {
 		o.Overrides = o.defaultOverrides()
 	}
 
+	if o.Resolver == nil {
+		o.Resolver, err = CreateResolver(&o.ScmOptions)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create a UsesResolver")
+		}
+	}
+	if o.Path != "" {
+		dir = filepath.Join(dir, o.Path)
+	}
 	if o.Recursive {
-		err := filepath.Walk(o.Dir, func(path string, info os.FileInfo, err error) error {
+		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
@@ -129,7 +144,9 @@ func (o *Options) Run() error {
 			return err
 		}
 	} else {
-		dir := filepath.Join(o.Dir, ".lighthouse")
+		if o.Path == "" {
+			dir = filepath.Join(dir, ".lighthouse")
+		}
 		err := o.ProcessDir(dir)
 		if err != nil {
 			return err
@@ -140,6 +157,11 @@ func (o *Options) Run() error {
 }
 
 func (o *Options) ProcessDir(dir string) error {
+	err := o.processTrigger(dir, "jenkins-x")
+	if err != nil {
+		return errors.Wrapf(err, "failed to process trigger file in dir %s", dir)
+	}
+
 	fs, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return errors.Wrapf(err, "failed to read dir %s", dir)
@@ -150,35 +172,43 @@ func (o *Options) ProcessDir(dir string) error {
 			continue
 		}
 		triggerDir := filepath.Join(dir, name)
-		triggersFile := filepath.Join(triggerDir, "triggers.yaml")
-		exists, err := files.FileExists(triggersFile)
-		if err != nil {
-			return errors.Wrapf(err, "failed to check if file exists %s", triggersFile)
-		}
-		if !exists {
-			continue
-		}
 
-		triggers := &triggerconfig.Config{}
-		err = yamls.LoadFile(triggersFile, triggers)
+		err := o.processTrigger(triggerDir, name)
 		if err != nil {
-			return errors.Wrapf(err, "failed to load triggers file %s", triggersFile)
-		}
-		err = o.processTriggers(triggers, triggerDir, name)
-		if err != nil {
-			return errors.Wrapf(err, "failed to process triggers file %s", triggersFile)
+			return errors.Wrapf(err, "failed to process trigger")
 		}
 	}
 	return nil
 }
 
+func (o *Options) processTrigger(triggerDir, name string) error {
+	triggersFile := filepath.Join(triggerDir, "triggers.yaml")
+	exists, err := files.FileExists(triggersFile)
+	if err != nil {
+		return errors.Wrapf(err, "failed to check if file exists %s", triggersFile)
+	}
+	if !exists {
+		return nil
+	}
+
+	triggers := &triggerconfig.Config{}
+	err = yamls.LoadFile(triggersFile, triggers)
+	if err != nil {
+		return errors.Wrapf(err, "failed to load triggers file %s", triggersFile)
+	}
+	err = o.processTriggers(triggers, triggerDir, name)
+	if err != nil {
+		return errors.Wrapf(err, "failed to process triggers file %s", triggersFile)
+	}
+	return nil
+}
+
 func (o *Options) processTriggers(repoConfig *triggerconfig.Config, dir string, name string) error {
-	ctx := context.TODO()
 	for i := range repoConfig.Spec.Presubmits {
 		r := &repoConfig.Spec.Presubmits[i]
 		if r.SourcePath != "" {
 			path := filepath.Join(dir, r.SourcePath)
-			pr, err := loadJobBaseFromSourcePath(ctx, path)
+			pr, err := loadJobBaseFromSourcePath(o.Resolver, path)
 			if err != nil {
 				return errors.Wrapf(err, "failed to load pipeline at %s", path)
 			}
@@ -194,7 +224,7 @@ func (o *Options) processTriggers(repoConfig *triggerconfig.Config, dir string, 
 		r := &repoConfig.Spec.Postsubmits[i]
 		if r.SourcePath != "" {
 			path := filepath.Join(dir, r.SourcePath)
-			pr, err := loadJobBaseFromSourcePath(ctx, path)
+			pr, err := loadJobBaseFromSourcePath(o.Resolver, path)
 			if err != nil {
 				return errors.Wrapf(err, "failed to load pipeline at %s", path)
 			}
@@ -260,7 +290,7 @@ func (o *Options) processTriggerPipeline(config *triggerconfig.Config, jobBase *
 	return nil
 }
 
-func loadJobBaseFromSourcePath(ctx context.Context, path string) (*v1beta1.PipelineRun, error) {
+func loadJobBaseFromSourcePath(resolver *inrepo.UsesResolver, path string) (*v1beta1.PipelineRun, error) {
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to load file %s", path)
@@ -269,18 +299,7 @@ func loadJobBaseFromSourcePath(ctx context.Context, path string) (*v1beta1.Pipel
 		return nil, errors.Errorf("empty file file %s", path)
 	}
 
-	dir := filepath.Dir(path)
-	message := fmt.Sprintf("file %s", path)
-
-	getData := func(path string) ([]byte, error) {
-		data, err := ioutil.ReadFile(path)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to read file %s", path)
-		}
-		return data, nil
-	}
-
-	pr, err := inrepo.LoadTektonResourceAsPipelineRun(data, dir, message, getData, nil)
+	pr, err := inrepo.LoadTektonResourceAsPipelineRun(resolver, data)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to unmarshal YAML file %s", path)
 	}
@@ -343,5 +362,28 @@ func (o *Options) createDockerBuildStep(args *StepOverrideArgs) []*actions.TaskS
 		With: pushWith,
 	})
 	return answer
+}
 
+// CreateResolver creates a new resolver
+func CreateResolver(f *scmhelpers.Options) (*inrepo.UsesResolver, error) {
+	err := f.Validate()
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to discover scm client")
+	}
+
+	scmProvider := scmprovider.ToClient(f.ScmClient, "my-bot")
+	fb := filebrowser.NewFileBrowserFromScmClient(scmProvider)
+
+	fileBrowsers, err := filebrowser.NewFileBrowsers(f.GitServerURL, fb)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create file browsers")
+	}
+
+	return &inrepo.UsesResolver{
+		FileBrowsers:     fileBrowsers,
+		OwnerName:        f.Owner,
+		RepoName:         f.Repository,
+		Dir:              f.Dir,
+		LocalFileResolve: true,
+	}, nil
 }

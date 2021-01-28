@@ -24,7 +24,8 @@ func TestConvert(t *testing.T) {
 	tmpDir, err := ioutil.TempDir("", "")
 	require.NoError(t, err, "could not create temp dir")
 
-	o.Dir = "test_data"
+	o.ScmOptions.Dir = "test_data"
+	o.ScmOptions.SourceURL = "https://github.com/jenkins-x-plugins/jx-tekton-to-actions"
 	o.OutDir = tmpDir
 	err = o.Run()
 	require.NoError(t, err, "Failed to run linter")

@@ -41,7 +41,7 @@ jobs:
       name: promote-changelog
       uses: docker://gcr.io/jenkinsxio/jx-changelog:0.0.13
       with:
-        entrypoint: /var/folders/3v/894jjhy52xdbc1hml4dc6s1m0000gn/T/514290138/jenkins-x/promote-changelog.sh
+        entrypoint: /var/folders/3v/894jjhy52xdbc1hml4dc6s1m0000gn/T/759782013/jenkins-x/promote-changelog.sh
     - env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       name: promote-helm-release
