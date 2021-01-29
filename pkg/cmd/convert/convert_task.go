@@ -150,7 +150,9 @@ func (o *Options) taskStepToTaskStep(spec *v1beta1.TaskSpec, s *v1beta1.Step, ki
 			}
 		}
 	} else {
-		step.With["entrypoint"] = strings.Join(append(s.Command, s.Args...), " ")
+		args := append(s.Command, s.Args...)
+		step.With["entrypoint"] = args[0]
+		step.With["args"] = strings.Join(args[1:], " ")
 	}
 	return []*actions.TaskStep{step}, nil
 }
