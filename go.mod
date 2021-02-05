@@ -1,16 +1,17 @@
 module github.com/jenkins-x-plugins/jx-tekton-to-actions
 
 require (
+	github.com/Azure/go-autorest/autorest/adal v0.9.11 // indirect
 	github.com/aws/aws-sdk-go v1.35.18 // indirect
 	github.com/cpuguy83/go-md2man v1.0.10
 	github.com/fatih/color v1.10.0 // indirect
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
-	github.com/googleapis/gnostic v0.5.3 // indirect
-	github.com/jenkins-x/go-scm v1.5.216 // indirect
-	github.com/jenkins-x/jx-helpers/v3 v3.0.72
+	github.com/googleapis/gnostic v0.5.4 // indirect
+	github.com/jenkins-x/jx-api/v4 v4.0.24 // indirect
+	github.com/jenkins-x/jx-helpers/v3 v3.0.73
 	github.com/jenkins-x/jx-logging/v3 v3.0.3
-	github.com/jenkins-x/lighthouse-client v0.0.15
+	github.com/jenkins-x/lighthouse-client v0.0.24
 	github.com/kr/pretty v0.2.1 // indirect
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.1.1
