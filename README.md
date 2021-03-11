@@ -8,6 +8,8 @@
 
 `jx-tekton-to-actions` is a small command line tool for converting [Tekton pipelines](https://tekton.dev/) into [GitHub Actions](https://github.com/features/actions).
 
+**NOTE** that the resulting github actions will probably need a little bit of polish and improvements
+
 ## Commands
 
 See the [jx-tekton-to-actions command reference](https://github.com/jenkins-x-plugins/jx-tekton-to-actions/blob/master/docs/cmd/jx-tekton-to-actions.md)
